@@ -1,13 +1,14 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 
 <head>
+
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title>Adicionar Item</title>
 
     <link rel="stylesheet" href="/static/style.css">
-
-    <script src="https://unpkg.com/@ericblade/quagga2/dist/quagga.min.js"></script>
 
 </head>
 
@@ -19,100 +20,215 @@
 
     <form action="/add_item" method="post">
 
-        <input id="name" name="name" placeholder="Nome do item">
+        <input
+            id="name"
+            name="name"
+            placeholder="Nome do item"
+        >
 
-        <input id="barcode" name="barcode" placeholder="Código de barras">
+        <input
+            id="barcode"
+            name="barcode"
+            placeholder="Código de barras"
+            readonly
+        >
 
-        <input id="price" name="price" placeholder="Preço">
+        <input
+            id="price"
+            name="price"
+            placeholder="Preço"
+            type="number"
+            step="0.01"
+        >
 
-        <input id="quantity" name="quantity" placeholder="Quantidade">
+        <input
+            id="quantity"
+            name="quantity"
+            placeholder="Quantidade"
+            type="number"
+        >
 
-        <button type="submit">Inserir item</button>
+        <button type="submit">
+            Inserir item
+        </button>
 
     </form>
 
     <br>
 
-    <button onclick="startScanner()">Ler código de barras</button>
+    <button type="button" onclick="startScanner()">
+        Ler código de barras
+    </button>
 
-    <div id="scanner" style="margin-top:20px;"></div>
+    <br><br>
+
+    <!-- Área da câmera -->
+    <video
+        id="video"
+        width="400"
+        height="300"
+        autoplay
+        playsinline
+        style="display: none; border: 1px solid #ccc;"
+    ></video>
+
+    <!-- Canvas oculto usado para capturar frames -->
+    <canvas
+        id="canvas"
+        width="400"
+        height="300"
+        style="display: none;"
+    ></canvas>
+
+    <p id="status"></p>
 
     <br>
 
-    <a href="/items">Ver lista</a>
+    <a href="/items">
+        Ver lista
+    </a>
 
 </div>
 
 
 <script>
 
-async function buscarProduto(barcode){
+let stream = null
+let scannerInterval = null
 
-    try{
 
-        let response = await fetch("/get_item/" + barcode)
-
-        let data = await response.json()
-
-        if(data.name){
-            document.getElementById("name").value = data.name
-        }
-
-        if(data.price){
-            document.getElementById("price").value = data.price
-        }
-
-        if(data.quantity){
-            document.getElementById("quantity").value = data.quantity
-        }
-
-    }catch(error){
-
-        console.log("Erro ao buscar produto:", error)
-
-    }
-
+function atualizarStatus(texto) {
+    document.getElementById("status").innerText = texto
 }
 
 
-function startScanner(){
+function preencherFormulario(data) {
 
-    Quagga.init({
+    document.getElementById("barcode").value = data.barcode || ""
+    document.getElementById("name").value = data.name || ""
+    document.getElementById("price").value = data.price || ""
+    document.getElementById("quantity").value = data.quantity || ""
 
-        inputStream: {
-            type: "LiveStream",
-            target: document.querySelector('#scanner'),
-            constraints: {
-            facingMode: "environment"
-           }
-    },
-
-    decoder: {
-        readers: ["ean_reader","ean_8_reader","code_128_reader"]
+    if (data.exists) {
+        atualizarStatus("Produto encontrado e preenchido automaticamente.")
+    } else {
+        atualizarStatus("Código encontrado. Produto novo, preencha os dados.")
     }
+}
 
-    }, function(err){
 
-        if(err){
-            console.log(err)
-            return
+async function enviarFrame() {
+
+    const video = document.getElementById("video")
+    const canvas = document.getElementById("canvas")
+    const context = canvas.getContext("2d")
+
+    context.drawImage(
+        video,
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    )
+
+    canvas.toBlob(async function(blob) {
+
+        if (!blob) return
+
+        const formData = new FormData()
+        formData.append("file", blob, "barcode.jpg")
+
+        try {
+
+            const response = await fetch("/decode-barcode", {
+                method: "POST",
+                body: formData
+            })
+
+            const data = await response.json()
+
+            console.log(data)
+
+            if (data.success) {
+
+                preencherFormulario(data)
+                stopScanner()
+
+            } else {
+
+                atualizarStatus("Procurando código de barras...")
+
+            }
+
+        } catch (error) {
+
+            console.log("Erro ao enviar imagem:", error)
+            atualizarStatus("Erro ao processar leitura.")
+
         }
 
-    Quagga.start()
+    }, "image/jpeg", 0.95)
+}
 
-})
 
-Quagga.onDetected(function(data){
+async function startScanner() {
 
-    let code = data.codeResult.code
+    const video = document.getElementById("video")
 
-    document.getElementById("barcode").value = code
+    try {
 
-    buscarProduto(code)
+        atualizarStatus("Abrindo câmera...")
 
-    Quagga.stop()
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: {
+                    ideal: "environment"
+                },
+                width: {
+                    ideal: 1280
+                },
+                height: {
+                    ideal: 720
+                }
+            }
+        })
 
-    })
+        video.srcObject = stream
+        video.style.display = "block"
+
+        atualizarStatus("Aponte para o código de barras...")
+
+        /*
+        Captura automática a cada 1.5 segundos
+        */
+        scannerInterval = setInterval(() => {
+            enviarFrame()
+        }, 1500)
+
+    } catch (error) {
+
+        console.log(error)
+        atualizarStatus("Erro ao acessar a câmera.")
+
+    }
+}
+
+
+function stopScanner() {
+
+    const video = document.getElementById("video")
+
+    if (scannerInterval) {
+        clearInterval(scannerInterval)
+        scannerInterval = null
+    }
+
+    if (stream) {
+        stream.getTracks().forEach(track => track.stop())
+        stream = null
+    }
+
+    video.style.display = "none"
 
 }
 

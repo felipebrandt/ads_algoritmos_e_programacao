@@ -3,71 +3,94 @@ from shoppinglib.models import Item, ShoppingList, ShoppingListItem, PriceHistor
 
 class ShoppingListManager:
 
-    def create_list(self, name, market):
+    def manager(self, operation, name=None, market=None, price=None, quantity=None, barcode=None):
 
-        return ShoppingList.create(
-            name=name,
-            market=market
-        )
-
-    def get_current_list(self):
-
-        return (
-            ShoppingList
-            .select()
-            .order_by(ShoppingList.created_at.desc())
-            .first()
-        )
-
-    def add_item(self, name, barcode, price, quantity):
-
-        current_list = self.get_current_list()
-
-        if not current_list:
-            raise Exception("Não foi criada lista de compras")
-
-        item = Item.get_or_none(Item.bar_code == barcode)
-
-        if not item:
-            item = Item.create(
+        if operation == 'create':
+            return ShoppingList.create(
                 name=name,
-                bar_code=barcode
+                market=market
+            )
+        if operation == 'get_list':
+            return (
+                ShoppingList
+                .select()
+                .order_by(ShoppingList.created_at.desc())
+                .first()
+            )
+        if operation == 'add_item':
+            current_list = self.manager('get_list')
+
+            if not current_list:
+                raise Exception("Não foi criada lista de compras")
+
+            item = Item.get_or_none(Item.bar_code == barcode)
+
+            if not item:
+                item = Item.create(
+                    name=name,
+                    bar_code=barcode
+                )
+
+            ShoppingListItem.create(
+                shopping_list=current_list,
+                item=item,
+                quantity=quantity,
+                price=price
             )
 
-        ShoppingListItem.create(
-            shopping_list=current_list,
-            item=item,
-            quantity=quantity,
-            price=price
-        )
+            PriceHistory.create(
+                item=item,
+                price=price,
+                market=current_list.market
+            )
+        if operation == 'get_items':
+            current_list = self.manager('get_list')
 
-        PriceHistory.create(
-            item=item,
-            price=price,
-            market=current_list.market
-        )
+            if not current_list:
+                return []
 
-    def get_items(self):
+            items = []
 
-        current_list = self.get_current_list()
+            for entry in current_list.items:
+                item = entry.item
+                price = entry.price
 
-        if not current_list:
-            return []
+                items.append({
+                    "name": item.name,
+                    "barcode": item.bar_code,
+                    "quantity": entry.quantity,
+                    "price": price,
+                    "total": price * entry.quantity
+                })
 
-        items = []
+            return items
+        if operation == 'get_item_by_barcode':
+            item = Item.get_or_none(Item.bar_code == barcode)
 
-        for entry in current_list.items:
+            if not item:
+                return None
 
-            item = entry.item
-            price = entry.price
+            last_price = (
+                PriceHistory
+                .select()
+                .where(PriceHistory.item == item)
+                .order_by(PriceHistory.created_at.desc())
+                .first()
+            )
 
-            items.append({
+            last_list_item = (
+                ShoppingListItem
+                .select()
+                .where(ShoppingListItem.item == item)
+                .order_by(ShoppingListItem.created_at.desc())
+                .first()
+            )
+
+            return {
                 "name": item.name,
                 "barcode": item.bar_code,
-                "quantity": entry.quantity,
-                "price": price,
-                "total": price * entry.quantity
-            })
-
-        return items
-
+                "price": last_price.price if last_price else "",
+                "quantity": last_list_item.quantity if last_list_item else ""
+            }
+        else:
+            return None

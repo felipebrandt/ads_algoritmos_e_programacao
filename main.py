@@ -5,29 +5,31 @@ from shoppinglib.shopping_list import ShoppingListManager
 class App:
 
     def __init__(self):
-
         self.shopping = ShoppingListManager()
 
-    def validate_login(self, login, password):
+    @staticmethod
+    def validate_login(login, password):
+        if not user_exists(login):
+            return False
+        saved_password = get_user_password(login)
+        return saved_password == password
 
-        pass
-
-    def register_user(self, username, password):
-
-        pass
+    @staticmethod
+    def register_user(username, password):
+        if user_exists(username):
+            return False
+        create_user(username, password)
+        return True
 
     def create_list(self, name, market):
-
-        pass
+        return self.shopping.manager('create',name=name, market=market)
 
     def add_item(self, name, barcode, price, quantity):
-
-        pass
+        return self.shopping.manager('add_item',name=name, barcode=barcode, price=price, quantity=quantity)
 
     def get_items(self):
-
-        pass
+        return self.shopping.manager('get_items')
 
     def get_item_by_barcode(self, barcode):
-        pass
+        return self.shopping.manager('get_item_by_barcode',barcode=barcode)
 
